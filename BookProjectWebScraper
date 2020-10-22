@@ -1,0 +1,130 @@
+! pip install --user --upgrade bs4 requests
+
+import requests
+from bs4 import BeautifulSoup
+
+!apt-get install openjdk-8-jdk-headless -qq > /dev/null
+#install java development kit
+
+!wget -q https://www-us.apache.org/dist/spark/spark-2.4.7/spark-2.4.7-bin-hadoop2.7.tgz
+#wget downloads a file from a url (zip file containing spark 2.4.6 with hadoop 2.7)
+#spark gets updated constantly, you have to change the url each time they update it
+
+!tar xf spark-2.4.7-bin-hadoop2.7.tgz
+!pip install -q findspark
+#install spark
+
+import os
+os.environ["JAVA_HOME"] = "/usr/lib/jvm/java-8-openjdk-amd64"
+os.environ["SPARK_HOME"] = "/content/spark-2.4.7-bin-hadoop2.7"
+#setup library variables
+
+import findspark
+findspark.init()
+#import findspark
+
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.appName("bookProject").getOrCreate()
+
+import pandas as pd
+bookdf = pd.DataFrame(data=None, columns = ["Book Title", "Price", "Publication Year", "Page Count", "Author Count", "Previous Books Published"])
+
+#handling paginization for booksamillion website search queries
+urls = ["https://www.booksamillion.com/search?filter=product_type%3Abooks;query=big%20data%20hardcover;page=1"]
+
+for i in range (3, 51):
+  url = "https://www.booksamillion.com/search?filter=product_type%3Abooks;query=big%20data%20hardcover;page={}".format(i)
+  urls.append(url)
+
+
+#grabbing the url for each book 
+book_urls = []
+
+for url in urls:
+  
+  r = requests.get(url)
+  soup = BeautifulSoup(r.content, "html.parser")
+
+  book_list = soup.find_all(name="div", attrs={"class": "imageContainer"})
+
+  for book in book_list:
+
+    a = book.find("a")
+
+    book_url = a["href"]
+    book_urls.append(book_url)
+
+url1 = "https://www.booksamillion.com/p/Big-Data/Hrushikesha-Mohanty/9788132235675?id=8033110673309"
+
+r = requests.get(url1)
+soup = BeautifulSoup(r.content, "html.parser")
+
+for strong in soup.find(name="div", attrs={"class":"details-content-text"}).find_all("strong"):
+  if strong.text == "Page Count":
+    pageCount = strong.next_sibling.strip(": ")
+
+pageCount
+
+
+import time
+
+for url in book_urls:
+
+  r = requests.get(url)
+  soup = BeautifulSoup(r.content, "html.parser")
+
+  #find book title
+  title = soup.find(name="span", attrs={"class":"details-title-text"}).find(name="strong", attrs=None).text
+
+  #find book price
+  price = soup.find(name="strong", attrs={"id":"our_price-1"}).text.strip("$")
+  
+  #find publish year of book
+  for div in soup.find_all(name="div", attrs={"class":"details-content-text"}):
+    for strong in div.find_all(name="strong"):
+      if strong.text == "Publish Date":
+        publishDate = strong.next_sibling.strip(": ")
+        publishDate = publishDate[-4:]
+
+  #find book page count
+  for div in soup.find_all(name="div", attrs={"class":"details-content-text"}):
+    for strong in div.find_all(name="strong"):
+      if strong.text == "Page Count":
+        pageCount = strong.next_sibling.strip(": ")
+  
+  #find number of authors
+  authors = []
+  for a in soup.find(name="span", attrs={"class":"details-author-text"}).find_all("a"):
+    author = a.text
+    authors.append(a)
+  authorCount = len(authors)
+
+  #find how many books previously published
+  publishList = []
+  for a in soup.find(name="span", attrs={"class":"details-author-text"}).find_all("a"):
+    aURL = a["href"]
+
+    r = requests.get(aURL)
+    soup = BeautifulSoup(r.content, "html.parser")
+
+    for book in soup.find_all(name = "div", attrs={"class":"search-item-title"}):
+      title = book.find(name = "a").text
+      if title not in publishList:
+        publishList.append(title)
+  publishCount = len(publishList)
+
+  bookdf = bookdf.append({"Book Title":title, 
+                          "Price":price, 
+                          "Publication Year":publishDate,
+                          "Page Count":pageCount, 
+                          "Author Count":authorCount, 
+                          "Previous Books Published":publishCount}, 
+                         ignore_index = True)
+  
+  time.sleep(.1)
+  
+bookdf
+
+bookdf.to_csv("BookDataBigData.csv")
+from google.colab import files
+files.download("BookDataBigData.csv")
